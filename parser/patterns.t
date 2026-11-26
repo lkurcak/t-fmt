@@ -13,8 +13,43 @@ use crate::lexer::Tok;
 use crate::parser::{joined, no_targs, starts_upper, Parser, Segment};
 use crate::text;
 
-/// A pattern, or alternatives of them: `A | B`.
+/// A pattern, which can't be `..`: that's only one of a tuple's, a
+/// variant's or an array's (`element`).
 pub fn pattern(p: &mut Parser) -> Result<Pattern, Error> {
+    let pat = alternatives(p)?;
+    if let PatternKind::Rest = pat.kind {
+        return Err(Error::syntax(
+            pat.span,
+            "`..` stands for the values of a tuple, a variant or an array that the patterns beside it don't name, so it can only be one of those: `(a, ..)`",
+        ));
+    }
+    Ok(pat)
+}
+
+/// One of the patterns of a tuple's, a variant's or an array's values: a
+/// pattern, or `..`, for the values the others don't name.
+fn element(p: &mut Parser) -> Result<Pattern, Error> { alternatives(p) }
+
+/// The patterns of a tuple's, a variant's or an array's values, with at
+/// most one `..`: with two, which values each stands for isn't said.
+fn one_rest(pats: &List<Pattern>) -> Result<(), Error> {
+    let mut seen = false;
+    for q in pats {
+        if let PatternKind::Rest = q.kind {
+            if seen {
+                return Err(Error::syntax(
+                    q.span,
+                    "only one `..` can be among a pattern's values: with two, which values each stands for isn't said",
+                ));
+            }
+            seen = true;
+        }
+    }
+    Ok(())
+}
+
+/// A pattern, or alternatives of them: `A | B`.
+fn alternatives(p: &mut Parser) -> Result<Pattern, Error> {
     let first = pat_atom(p)?;
     if p.peek() == Tok::OrOr {
         return Err(Error::syntax(p.span(), "use `|` between pattern alternatives, not `||`"));
@@ -31,6 +66,14 @@ pub fn pattern(p: &mut Parser) -> Result<Pattern, Error> {
         end = alt.span;
         alts.push(alt);
     }
+    for a in &alts {
+        if let PatternKind::Rest = a.kind {
+            return Err(Error::syntax(
+                a.span,
+                "`..` can't be an alternative: it stands for values, not one of them",
+            ));
+        }
+    }
     Ok(Pattern { kind: PatternKind::Or(alts), span: start.to(end) })
 }
 
@@ -45,8 +88,14 @@ pub fn pat_atom(p: &mut Parser) -> Result<Pattern, Error> {
                 "a byte string literal can't be a pattern yet; compare with `==`",
             ));
         },
-        Tok::Int(_, _) | Tok::Minus | Tok::Byte(_) | Tok::Char(_) => return literal(p),
+        Tok::Int(..) | Tok::Minus | Tok::Byte(_) | Tok::Char(_) => return literal(p),
         Tok::DotDot | Tok::DotDotEq => {
+            // `..` alone: the values of a tuple, variant or array the
+            // patterns beside it don't name.
+            if p.peek() == Tok::DotDot && !starts_pat_int(p.peek2()) {
+                p.bump();
+                return Ok(Pattern { kind: PatternKind::Rest, span: start });
+            }
             let inclusive = p.bump().tok == Tok::DotDotEq;
             let hi = pat_int(p)?;
             let kind = PatternKind::Range(None, Some(hi.num), inclusive, hi.lit);
@@ -66,7 +115,8 @@ pub fn pat_atom(p: &mut Parser) -> Result<Pattern, Error> {
         Tok::LParen => return parens(p),
         Tok::LBracket => {
             p.bump();
-            let (pats, end) = p.comma_list(Tok::RBracket, pattern)?;
+            let (pats, end) = p.comma_list(Tok::RBracket, element)?;
+            one_rest(&pats)?;
             return Ok(Pattern { kind: PatternKind::Array(pats), span: start.to(end) });
         },
         Tok::Crate | Tok::Super => return path_pattern(p),
@@ -133,7 +183,7 @@ fn parens(p: &mut Parser) -> Result<Pattern, Error> {
     let mut pats = List::new();
     let mut comma = None;
     while p.peek() != Tok::RParen {
-        pats.push(pattern(p)?);
+        pats.push(element(p)?);
         if p.peek() != Tok::Comma {
             break;
         }
@@ -144,8 +194,15 @@ fn parens(p: &mut Parser) -> Result<Pattern, Error> {
     }
     let end = p.close_parens(pats.len(), comma)?;
     let span = start.to(end);
+    one_rest(&pats)?;
     if pats.len() >= 2 {
         return Ok(Pattern { kind: PatternKind::Tuple(pats), span });
+    }
+    if pats.len() == 1 {
+        if let PatternKind::Rest = text::item(&pats, 0).kind {
+            // `(..)`: any tuple.
+            return Ok(Pattern { kind: PatternKind::Tuple(pats), span });
+        }
     }
     match pats.pop() {
         None => Ok(Pattern { kind: PatternKind::Unit, span }),
@@ -161,7 +218,8 @@ fn upper_name(p: &mut Parser) -> Result<Pattern, Error> {
     let start = name.span;
     let (args, end, written) = match p.eat(Tok::LParen) {
         true => {
-            let (args, end) = p.comma_list(Tok::RParen, pattern)?;
+            let (args, end) = p.comma_list(Tok::RParen, element)?;
+            one_rest(&args)?;
             (args, end, true)
         },
         false => (List::new(), name.span, false),
@@ -190,9 +248,10 @@ fn path_pattern(p: &mut Parser) -> Result<Pattern, Error> {
     no_targs(&segs)?;
     let ty = joined(&segs, &ty_name);
     let (args, end) = match p.eat(Tok::LParen) {
-        true => p.comma_list(Tok::RParen, pattern)?,
+        true => p.comma_list(Tok::RParen, element)?,
         false => (List::new(), last.span),
     };
+    one_rest(&args)?;
     Ok(Pattern { kind: PatternKind::Variant(ty, targs, last, args), span: start.to(end) })
 }
 
@@ -232,7 +291,7 @@ fn pat_int(p: &mut Parser) -> Result<PatInt, Error> {
 /// Can a literal in a pattern start with `tok`?
 fn starts_pat_int(tok: Tok) -> bool {
     match tok {
-        Tok::Int(_, _) | Tok::Minus | Tok::Byte(_) | Tok::Char(_) => true,
+        Tok::Int(..) | Tok::Minus | Tok::Byte(_) | Tok::Char(_) => true,
         _ => false,
     }
 }

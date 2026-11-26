@@ -801,7 +801,7 @@ fn signature(p: &mut Printer, f: &FnDecl, lead: bool) -> Doc {
         TypeExprKind::Unit => Doc::nil(),
         // A refinement stays on one line, so the parameters break
         // first, rather than its predicate.
-        TypeExprKind::Refined(_, _, _) => {
+        TypeExprKind::Refined(..) => {
             let t = ty(p, &f.ret);
             let t = match flat(&t) {
                 Some(flat) => flat,

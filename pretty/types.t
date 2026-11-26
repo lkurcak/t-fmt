@@ -118,6 +118,7 @@ pub fn ty(p: &mut Printer, t: &TypeExpr) -> Doc {
 pub fn pattern(p: &mut Printer, pat: &Pattern) -> Doc {
     match &pat.kind {
         PatternKind::Wild => text("_"),
+        PatternKind::Rest => text(".."),
         PatternKind::Bind(name, false) => text(name.as_str()),
         PatternKind::Bind(name, true) => Doc::Text(String::of(&f"mut {name}")),
         PatternKind::Int(n, lit) => p.spelled(pat.span, show(*lit, *n)),
