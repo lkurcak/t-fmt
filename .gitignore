@@ -1,3 +1,4 @@
 /main
 /t-fmt
 *.o
+/tests/t-fmt

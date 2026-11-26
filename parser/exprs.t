@@ -290,7 +290,6 @@ fn assign_op(op: OpEq) -> BinOp {
         OpEq::Or => BinOp::BitOr,
         OpEq::Xor => BinOp::BitXor,
         OpEq::Shl => BinOp::Shl,
-        OpEq::Shr => BinOp::Shr,
     }
 }
 

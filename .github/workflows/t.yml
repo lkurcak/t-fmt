@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: lkurcak/forge/.github/workflows/t-ci.yml@v1
+    with:
+      # The `t` this repo is checked with. Bump both together, from the
+      # release's asset digest: gh release view vX.Y.Z -R lkurcak/t-lang --json assets
+      t-version: v0.107.3
+      t-sha256: 162fe70d285be6daae1a598c45f504ea872038b361438fc0d81a6ea7032d951f

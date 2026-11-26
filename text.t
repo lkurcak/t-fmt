@@ -50,9 +50,7 @@ pub fn is_alpha(b: u8) -> bool { (b >= b'a' && b <= b'z') || (b >= b'A' && b <= 
 
 pub fn is_alnum(b: u8) -> bool { is_alpha(b) || is_digit(b) }
 
-pub fn is_hex(b: u8) -> bool {
-    is_digit(b) || (b >= b'a' && b <= b'f') || (b >= b'A' && b <= b'F')
-}
+pub fn is_hex(b: u8) -> bool { is_digit(b) || (b >= b'a' && b <= b'f') || (b >= b'A' && b <= b'F') }
 
 /// ASCII whitespace, as Rust's `u8::is_ascii_whitespace` says: space, tab,
 /// line feed, form feed and carriage return.

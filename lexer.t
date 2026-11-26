@@ -129,7 +129,7 @@ pub struct Pieces { pub first: usize, pub len: usize }
 
 /// The operator of a compound assignment like `+=`.
 #[derive(Copy, Discard, Eq)]
-pub enum OpEq { Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr }
+pub enum OpEq { Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl }
 
 impl OpEq {
     pub fn symbol(self) -> &'static str {
@@ -143,7 +143,6 @@ impl OpEq {
             OpEq::Or => "|",
             OpEq::Xor => "^",
             OpEq::Shl => "<<",
-            OpEq::Shr => ">>",
         }
     }
 }
@@ -557,10 +556,7 @@ fn number<'s>(src: &'s str, start: usize) -> Result<(Tok<'s>, usize), Error> {
                 _ => "a decimal digit",
             };
             let digit = sub(src, j - 1, j);
-            return Err(Error::owned(
-                Span::new(j - 1, j),
-                String::of(&f"`{digit}` isn't {what}"),
-            ));
+            return Err(Error::owned(Span::new(j - 1, j), String::of(&f"`{digit}` isn't {what}")));
         }
         n = match n {
             Some(v) => match checked_mul(v, radix) {
@@ -783,9 +779,7 @@ fn hole<'s>(
     }
     match at(bytes, i) {
         Some(b'}') => Ok((Hole { toks, spec, width_at, span: Span::new(start, i + 1) }, i + 1)),
-        _ => {
-                Err(never_closed(start))
-        },
+        _ => { Err(never_closed(start)) },
     }
 }
 
@@ -1014,7 +1008,8 @@ fn is_char_literal(src: &str, i: usize) -> bool {
     match chars.next() {
         Some('\\') => true,
         Some('\'') => true,
-        Some(c) => chars.next() == Some('\'') || !(c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_'),
+        Some(c) => chars.next() == Some('\'')
+            || !(c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_'),
         None => false,
     }
 }
@@ -1118,7 +1113,12 @@ fn escape(src: &str, esc: usize, kind: Quote) -> Result<Read, Error> {
             ));
         }
         let bytes = src.as_bytes();
-        while i < bytes.len() && (byte(bytes, i) == b' ' || byte(bytes, i) == b'\t' || byte(bytes, i) == b'\n' || byte(bytes, i) == b'\r') {
+        while i < bytes.len()
+            && (byte(bytes, i) == b' '
+                || byte(bytes, i) == b'\t'
+                || byte(bytes, i) == b'\n'
+                || byte(bytes, i) == b'\r')
+        {
             i = i + 1;
         }
         return Ok(Read { end: i, first: 0 });
@@ -1245,7 +1245,7 @@ fn escape_char(c: char, out: &mut String) {
         '\t' => out.push_str("\\t"),
         '\\' => out.push_str("\\\\"),
         c => {
-            if (c as u32) < 32 || c as u32 == 127 {
+            if c as u32 < 32 || c as u32 == 127 {
                 let n = c as u32;
                 out.push_str(String::of(&f"\\u{{{n:x}}}").as_str());
             } else {

@@ -83,20 +83,11 @@ pub struct ModDecl {
 
 /// `use a::b::{c, d as e};`
 #[derive(Discard)]
-pub struct UseDecl {
-    pub span: Span,
-    pub module: usize,
-    pub vis: Vis,
-    pub tree: UseTree,
-}
+pub struct UseDecl { pub span: Span, pub module: usize, pub vis: Vis, pub tree: UseTree }
 
 /// `a::b`, `a::b as c` or `a::{..}`.
 #[derive(Discard)]
-pub struct UseTree {
-    pub path: List<Ident>,
-    pub kind: UseKind,
-    pub span: Span,
-}
+pub struct UseTree { pub path: List<Ident>, pub kind: UseKind, pub span: Span }
 
 #[derive(Discard)]
 pub enum UseKind {
@@ -107,11 +98,7 @@ pub enum UseKind {
 }
 
 #[derive(Discard)]
-pub enum TypeDecl {
-    Struct(StructDecl),
-    Enum(EnumDecl),
-    Alias(AliasDecl),
-}
+pub enum TypeDecl { Struct(StructDecl), Enum(EnumDecl), Alias(AliasDecl) }
 
 /// `<'a, 'b: 'a, T: Show + 'a, effect e, unsized D, const N: usize>` after
 /// the name of a function, struct or enum, or after `impl`; and a
@@ -179,11 +166,7 @@ pub struct FnSig { pub params: List<TypeExpr>, pub ret: Option<Box<TypeExpr>> }
 pub struct AssocBound { pub name: Ident, pub kind: AssocBoundKind }
 
 #[derive(Discard)]
-pub enum AssocBoundKind {
-    Eq(TypeExpr),
-    Bounds(List<Ident>),
-    Effects(EffectSet),
-}
+pub enum AssocBoundKind { Eq(TypeExpr), Bounds(List<Ident>), Effects(EffectSet) }
 
 /// `#[derive(A, B where T: C)]`
 #[derive(Discard)]
