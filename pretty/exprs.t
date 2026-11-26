@@ -8,6 +8,8 @@ use alloc::string::String;
 use crate::ast::{
     Arm,
     BinOp,
+    Chain,
+    Cond,
     Expr,
     ExprKind,
     FmtAlign,
@@ -88,14 +90,14 @@ fn apart(e: &Expr, op: BinOp, min: u8) -> u8 {
 /// starts?
 fn block_like(e: &Expr) -> bool {
     match e.kind {
-        ExprKind::If(_, _, _)
-        | ExprKind::IfLet(_, _, _)
-        | ExprKind::Match(_, _)
-        | ExprKind::While(_, _, _, _)
-        | ExprKind::WhileLet(_, _, _, _)
-        | ExprKind::Loop(_, _, _)
+        ExprKind::If(..)
+        | ExprKind::IfLet(..)
+        | ExprKind::Match(..)
+        | ExprKind::While(..)
+        | ExprKind::WhileLet(..)
+        | ExprKind::Loop(..)
         | ExprKind::For(_)
-        | ExprKind::Block(_, _)
+        | ExprKind::Block(..)
         | ExprKind::Unsafe(_) => true,
         _ => false,
     }
@@ -109,7 +111,7 @@ fn ends_in_brace(e: &Expr) -> bool {
         return true;
     }
     match &e.kind {
-        ExprKind::StructLit(_, _, _) => true,
+        ExprKind::StructLit(..) => true,
         ExprKind::Lambda(l) => ends_in_brace(&l.body),
         ExprKind::Binary(_, _, r) | ExprKind::Assign(_, _, r) | ExprKind::Range(_, r) => {
             ends_in_brace(r)
@@ -142,20 +144,20 @@ fn label_doc(label: &Option<Label>) -> Doc {
 fn huggable(args: &List<Expr>) -> bool {
     let Some(last) = args.last() else { return false };
     match &last.kind {
-        ExprKind::If(_, _, _)
-        | ExprKind::IfLet(_, _, _)
-        | ExprKind::Match(_, _)
-        | ExprKind::Block(_, _)
+        ExprKind::If(..)
+        | ExprKind::IfLet(..)
+        | ExprKind::Match(..)
+        | ExprKind::Block(..)
         | ExprKind::Unsafe(_) => true,
         ExprKind::StructLit(_, _, inits) => !inits.is_empty(),
         ExprKind::Array(items) => !items.is_empty(),
         ExprKind::Lambda(l) => match l.body.kind {
-            ExprKind::Block(_, _) => true,
+            ExprKind::Block(..) => true,
             _ => false,
         },
         // `f(g(..))`, but not `f(x, g(..))`, which would hide `x` at the end
         // of the line.
-        ExprKind::Call(_, _) | ExprKind::MethodCall(_, _, _, _) => args.len() == 1,
+        ExprKind::Call(..) | ExprKind::MethodCall(..) => args.len() == 1,
         ExprKind::Variant(_, _, _, inner, _) => args.len() == 1 && !inner.is_empty(),
         _ => false,
     }
@@ -166,7 +168,7 @@ fn huggable(args: &List<Expr>) -> bool {
 fn clauses_of(inv: &Invariant) -> Option<&Expr> {
     match inv {
         Some(e) => match e.kind {
-            ExprKind::Clauses(_) | ExprKind::Where(_, _) => Some(&**e),
+            ExprKind::Clauses(_) | ExprKind::Where(..) => Some(&**e),
             _ => None,
         },
         None => None,
@@ -178,20 +180,20 @@ fn clauses_of(inv: &Invariant) -> Option<&Expr> {
 pub fn expr(p: &mut Printer, e: &Expr, min: u8, ctx: Ctx) -> Doc {
     let own = match e.kind {
         ExprKind::Binary(op, _, _) => prec(op),
-        ExprKind::As(_, _) => AS,
+        ExprKind::As(..) => AS,
         // A closure's body runs as far right as it can, and so do the
         // value of an assignment, `return` and `break`. Even without a
         // value they need parentheses as an operand: `return - 1`
         // returns `-1`.
         ExprKind::Lambda(_)
-        | ExprKind::Assign(_, _, _)
+        | ExprKind::Assign(..)
         | ExprKind::Return(_)
-        | ExprKind::Break(_, _)
-        | ExprKind::Range(_, _) => 0,
+        | ExprKind::Break(..)
+        | ExprKind::Range(..) => 0,
         _ => UNARY,
     };
     let struct_lit = match e.kind {
-        ExprKind::StructLit(_, _, _) => true,
+        ExprKind::StructLit(..) => true,
         _ => false,
     };
     if own < min || (ctx.no_struct && struct_lit) || (ctx.stmt && block_like(e)) {
@@ -247,9 +249,7 @@ fn expr_inner(p: &mut Printer, e: &Expr, ctx: Ctx) -> Doc {
             // be called: `(|x| x)(1)`, and `(s.f)(1)`, as `s.f(1)` is a
             // method call.
             let min = match f.kind {
-                ExprKind::Var(_, _)
-                | ExprKind::Call(_, _)
-                | ExprKind::MethodCall(_, _, _, _) => UNARY,
+                ExprKind::Var(..) | ExprKind::Call(..) | ExprKind::MethodCall(..) => UNARY,
                 _ => UNARY + 1,
             };
             let callee = expr(p, f, min, ctx);
@@ -270,7 +270,7 @@ fn expr_inner(p: &mut Printer, e: &Expr, ctx: Ctx) -> Doc {
             let x = x.add(turbofish(p, targs));
             x.add(call_args(p, end, args))
         },
-        ExprKind::If(_, _, _) | ExprKind::IfLet(_, _, _) => if_chain(p, e),
+        ExprKind::If(..) | ExprKind::IfLet(..) => if_chain(p, e),
         ExprKind::While(label, c, inv, body) => {
             let head = label_doc(label).text("while ");
             let head = match clauses_of(inv) {
@@ -289,11 +289,11 @@ fn expr_inner(p: &mut Printer, e: &Expr, ctx: Ctx) -> Doc {
             let head = label_doc(label).text("while ");
             let head = match clauses_of(inv) {
                 Some(inv) => {
-                    let c = let_cond(p, c, true);
+                    let c = chain(p, c, true);
                     head.add(c).add(clauses(p, inv))
                 },
                 None => {
-                    let c = let_cond(p, c, false);
+                    let c = chain(p, c, false);
                     head.add(c).add(loop_invariant(p, inv))
                 },
             };
@@ -547,16 +547,16 @@ fn binary(p: &mut Printer, e: &Expr, op: BinOp, ctx: Ctx) -> Doc {
 /// them: `(*r).x`, `(a + b).len()`, `(P { x: 1 }).x`.
 fn receiver(p: &mut Printer, x: &Expr, ctx: Ctx) -> Doc {
     let min = match x.kind {
-        ExprKind::Unary(_, _)
-        | ExprKind::StructLit(_, _, _)
-        | ExprKind::Block(_, _)
+        ExprKind::Unary(..)
+        | ExprKind::StructLit(..)
+        | ExprKind::Block(..)
         | ExprKind::Unsafe(_)
-        | ExprKind::If(_, _, _)
-        | ExprKind::IfLet(_, _, _)
-        | ExprKind::Match(_, _)
-        | ExprKind::While(_, _, _, _)
-        | ExprKind::WhileLet(_, _, _, _)
-        | ExprKind::Loop(_, _, _)
+        | ExprKind::If(..)
+        | ExprKind::IfLet(..)
+        | ExprKind::Match(..)
+        | ExprKind::While(..)
+        | ExprKind::WhileLet(..)
+        | ExprKind::Loop(..)
         | ExprKind::For(_) => UNARY + 1,
         _ => UNARY,
     };
@@ -614,7 +614,7 @@ fn if_chain(p: &mut Printer, e: &Expr) -> Doc {
     loop {
         let (head, then, els) = match &e.kind {
             ExprKind::If(c, then, els) => (head_of(p, c), then, els),
-            ExprKind::IfLet(c, then, els) => (let_cond(p, c, false), then, els),
+            ExprKind::IfLet(c, then, els) => (chain(p, c, false), then, els),
             _ => {
                 doc = doc.add(block_or_expr(p, e));
                 break;
@@ -694,6 +694,42 @@ fn loop_invariant(p: &mut Printer, inv: &Invariant) -> Doc {
 /// `let pat = e ` after an `if` or `while`, with the space before the
 /// `{`, or without it, if `bare`. An `&&` or `||` there has to be in
 /// parentheses.
+/// The conditions of a chain after an `if` or `while`, with the space
+/// before the `{`, or without it, if `bare`: as `let_cond` prints a `let`
+/// alone, and several as `&&`'s operands, each on a line of its own if
+/// they don't fit on one, and then the `{` on the next.
+fn chain(p: &mut Printer, c: &Chain, bare: bool) -> Doc {
+    if c.conds.len() == 1 {
+        if let Cond::Let(l) = item(&c.conds, 0) {
+            return let_cond(p, l, bare);
+        }
+    }
+    let ctx = Ctx { no_struct: true, stmt: false };
+    let min = prec(BinOp::And) + 1;
+    let mut first = Doc::nil();
+    let mut rest = Doc::nil();
+    let mut i = 0;
+    while i < c.conds.len() {
+        let d = match item(&c.conds, i) {
+            Cond::Let(l) => {
+                let value = expr(p, &l.expr, min, ctx);
+                text("let ").add(pattern(p, &l.pat)).text(" = ").add(value)
+            },
+            Cond::Bool(e) => expr(p, e, min, ctx),
+        };
+        if i == 0 {
+            first = d;
+        } else {
+            rest = rest.add(Doc::Line).text("&& ").add(d);
+        }
+        i = i + 1;
+    }
+    match bare {
+        true => group(first.add(nest(rest))),
+        false => group(first.add(nest(rest)).add(Doc::Line)),
+    }
+}
+
 fn let_cond(p: &mut Printer, c: &LetCond, bare: bool) -> Doc {
     let head = match (chain_like(&c.expr), bare) {
         (true, false) => text("(").add(expr_inner(p, &c.expr, ANY)).text(") "),

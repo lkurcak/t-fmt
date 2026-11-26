@@ -15,6 +15,8 @@ use alloc::string::String;
 use crate::ast::{
     Arm,
     BinOp,
+    Chain,
+    Cond,
     Expr,
     ExprKind,
     FieldInit,
@@ -45,6 +47,9 @@ use crate::parser::items::{self, NOT_EXTERN, NOT_METHOD};
 use crate::parser::patterns;
 use crate::parser::types;
 use crate::text;
+
+/// How tightly `&&` binds: a chain's conditions bind more tightly.
+const AND_PREC: u8 = 2;
 
 /// How tightly comparisons bind: they don't chain.
 const CMP_PREC: u8 = 3;
@@ -224,15 +229,76 @@ fn let_stmt(p: &mut Parser) -> Result<Stmt, Error> {
     Ok(Stmt::Let(LetStmt { pat, ty, init, els, span: start.to(end) }))
 }
 
-/// `let pat = e`, after the `if` or `while` of an `if let` or `while let`
-/// (`what`).
-fn let_cond(p: &mut Parser, what: &str) -> Result<LetCond, Error> {
+/// `let pat = e`, a condition of a chain: `e` binds more tightly than
+/// `&&`, which joins it to the next condition.
+fn let_cond(p: &mut Parser) -> Result<LetCond, Error> {
     let let_span = p.expect(Tok::Let)?;
     let pat = patterns::pattern(p)?;
     p.expect(Tok::Eq)?;
-    let expr = p.structs(false, expr)?;
-    no_chain(&expr, what)?;
+    let expr = binary_op(p, AND_PREC + 1)?.0;
     Ok(LetCond { let_span, pat, expr })
+}
+
+/// What an `if` or a `while` tests.
+#[derive(Discard)]
+enum Condition { Is(Expr), Chain(Chain) }
+
+/// What an `if` or a `while` tests: an expression, or a chain of
+/// conditions with a `let` in it, joined by `&&`. Each condition binds
+/// more tightly than `&&`; with no `let`, they're the operands of the
+/// `&&`s, and the expression goes on from there as any other.
+fn condition(p: &mut Parser) -> Result<Condition, Error> { p.structs(false, condition_in) }
+
+fn condition_in(p: &mut Parser) -> Result<Condition, Error> {
+    let mut conds = List::new();
+    let mut lets = false;
+    loop {
+        match p.peek() {
+            Tok::Let => {
+                lets = true;
+                conds.push(Cond::Let(let_cond(p)?));
+            },
+            _ => conds.push(Cond::Bool(binary_op(p, AND_PREC + 1)?.0)),
+        }
+        if !p.eat(Tok::AndAnd) {
+            break;
+        }
+    }
+    if lets {
+        return match p.peek() {
+            Tok::OrOr => Err(Error::syntax(
+                p.span(),
+                "`||` can't join a condition with a `let` in it: what the `let` binds would be there on one side and not the other; put the `||` in parentheses, or use an `if` inside",
+            )),
+            Tok::DotDot | Tok::Eq | Tok::OpEq(_) => Err(Error::syntax(
+                p.span(),
+                "in a condition with a `let`, put a range or an assignment in parentheses",
+            )),
+            _ => Ok(Condition::Chain(Chain { conds })),
+        };
+    }
+    let mut lhs: Option<Expr> = None;
+    let mut lhs_op = None;
+    for c in conds {
+        let Cond::Bool(e) = c else { continue };
+        lhs = Some(match lhs {
+            None => {
+                if let ExprKind::Binary(op, _, _) = &e.kind {
+                    lhs_op = Some(*op);
+                }
+                e
+            },
+            Some(l) => {
+                lhs_op = Some(BinOp::And);
+                let span = l.span.to(e.span);
+                Expr { kind: ExprKind::Binary(BinOp::And, Box::new(l), Box::new(e)), span }
+            },
+        });
+    }
+    let lhs = lhs.expect("one condition at least");
+    let lhs = binary_op_from(p, lhs, lhs_op, 0)?.0;
+    let lhs = range_from(p, lhs)?;
+    Ok(Condition::Is(expr_from(p, lhs)?))
 }
 
 /// Checks that `e`, what an `if let`, `while let` or `let .. else` (`what`)
@@ -257,6 +323,11 @@ fn no_chain(e: &Expr, what: &str) -> Result<(), Error> {
 /// Assignment binds less tightly than anything, and to the right.
 pub fn expr(p: &mut Parser) -> Result<Expr, Error> {
     let lhs = range(p)?;
+    expr_from(p, lhs)
+}
+
+/// `expr`, from its first operand, `lhs`, parsed already.
+fn expr_from(p: &mut Parser, lhs: Expr) -> Result<Expr, Error> {
     let op = match p.peek() {
         Tok::Eq => None,
         Tok::OpEq(op) => Some(assign_op(op)),
@@ -311,6 +382,11 @@ fn written(e: &mut Expr) {
 /// `0..n + 1` is `0..(n + 1)`, and doesn't chain.
 fn range(p: &mut Parser) -> Result<Expr, Error> {
     let lhs = binary_op(p, 0)?.0;
+    range_from(p, lhs)
+}
+
+/// `range`, from its first operand, `lhs`, parsed already.
+fn range_from(p: &mut Parser, lhs: Expr) -> Result<Expr, Error> {
     match p.peek() {
         Tok::DotDot => {},
         Tok::DotDotEq => {
@@ -338,8 +414,20 @@ fn range(p: &mut Parser) -> Result<Expr, Error> {
 /// not in parentheses: whether it may be the operand of another is
 /// `nests_in`.
 fn binary_op(p: &mut Parser, min_prec: u8) -> Result<(Expr, Option<BinOp>), Error> {
-    let mut lhs = cast(p)?;
-    let mut lhs_op = None;
+    let lhs = cast(p)?;
+    binary_op_from(p, lhs, None, min_prec)
+}
+
+/// `binary_op`, from its first operand, `lhs`, parsed already, and its
+/// operator, `lhs_op`.
+fn binary_op_from(
+    p: &mut Parser,
+    lhs: Expr,
+    lhs_op: Option<BinOp>,
+    min_prec: u8,
+) -> Result<(Expr, Option<BinOp>), Error> {
+    let mut lhs = lhs;
+    let mut lhs_op = lhs_op;
     while let Some((op, prec)) = next_binop(p) {
         if prec < min_prec {
             break;
@@ -451,7 +539,7 @@ fn binop(tok: Tok) -> Option<(BinOp, u8)> {
 /// Can an expression start with `tok`?
 fn starts_expr(tok: Tok) -> bool {
     match tok {
-        Tok::Int(_, _)
+        Tok::Int(..)
         | Tok::Byte(_)
         | Tok::Char(_)
         | Tok::Str
@@ -626,6 +714,12 @@ fn primary(p: &mut Parser) -> Result<Expr, Error> {
         Tok::While | Tok::Loop | Tok::For | Tok::Lifetime(_) => return loop_expr(p),
         Tok::Return | Tok::Break | Tok::Continue => return jump(p),
         Tok::Pipe | Tok::OrOr | Tok::Move => return lambda(p),
+        Tok::Let => {
+            return Err(Error::syntax(
+                p.span(),
+                "a `let` can only be a condition of an `if` or a `while`, joined to the others by `&&`",
+            ));
+        },
         _ => return Err(p.unexpected("an expression")),
     };
     p.bump();
@@ -745,18 +839,11 @@ fn array_items(p: &mut Parser) -> Result<ExprKind, Error> {
     Ok(ExprKind::Array(items))
 }
 
-/// What an `if` tests: a condition, or a `let`.
-#[derive(Discard)]
-enum Cond { Is(Expr), Let(LetCond) }
-
 /// `if c { .. } else { .. }` or `if let p = e { .. }`, with an `else if`
 /// after it, or more.
 fn if_expr(p: &mut Parser) -> Result<Expr, Error> {
     let start = p.expect(Tok::If)?;
-    let cond = match p.peek() {
-        Tok::Let => Cond::Let(let_cond(p, "an `if let`")?),
-        _ => Cond::Is(p.structs(false, expr)?),
-    };
+    let cond = condition(p)?;
     let then = block(p)?;
     let els = match p.eat(Tok::Else) {
         true => match p.peek() {
@@ -770,8 +857,8 @@ fn if_expr(p: &mut Parser) -> Result<Expr, Error> {
         None => then.span,
     };
     let kind = match cond {
-        Cond::Is(c) => ExprKind::If(Box::new(c), Box::new(then), els),
-        Cond::Let(c) => ExprKind::IfLet(Box::new(c), Box::new(then), els),
+        Condition::Is(c) => ExprKind::If(Box::new(c), Box::new(then), els),
+        Condition::Chain(c) => ExprKind::IfLet(Box::new(c), Box::new(then), els),
     };
     Ok(Expr { kind, span: start.to(end) })
 }
@@ -811,21 +898,17 @@ fn loop_expr(p: &mut Parser) -> Result<Expr, Error> {
         return Ok(Expr { kind: ExprKind::For(Box::new(f)), span });
     }
     match (p.peek(), p.peek2()) {
-        (Tok::While, Tok::Let) => {
-            p.bump();
-            let c = let_cond(p, "a `while let`")?;
-            let inv = loop_invariant(p)?;
-            let body = block(p)?;
-            let span = start.to(body.span);
-            Ok(Expr { kind: ExprKind::WhileLet(label, Box::new(c), inv, Box::new(body)), span })
-        },
         (Tok::While, _) => {
             p.bump();
-            let c = p.structs(false, expr)?;
+            let c = condition(p)?;
             let inv = loop_invariant(p)?;
             let body = block(p)?;
             let span = start.to(body.span);
-            Ok(Expr { kind: ExprKind::While(label, Box::new(c), inv, Box::new(body)), span })
+            let kind = match c {
+                Condition::Is(c) => ExprKind::While(label, Box::new(c), inv, Box::new(body)),
+                Condition::Chain(c) => ExprKind::WhileLet(label, Box::new(c), inv, Box::new(body)),
+            };
+            Ok(Expr { kind, span })
         },
         (Tok::Loop, _) => {
             p.bump();
@@ -904,8 +987,8 @@ fn match_expr(p: &mut Parser) -> Result<Expr, Error> {
         p.expect(Tok::FatArrow)?;
         let body = p.structs(true, expr)?;
         let block_like = match &body.kind {
-            ExprKind::Block(_, _) | ExprKind::If(_, _, _) | ExprKind::Match(_, _) => true,
-            ExprKind::While(_, _, _, _) | ExprKind::Loop(_, _, _) => true,
+            ExprKind::Block(..) | ExprKind::If(..) | ExprKind::Match(..) => true,
+            ExprKind::While(..) | ExprKind::Loop(..) => true,
             _ => false,
         };
         arms.push(Arm { pat, body });

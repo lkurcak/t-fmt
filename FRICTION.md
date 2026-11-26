@@ -77,6 +77,8 @@ Wanted `if let Some((_, CMP_PREC)) = next_binop(p) { .. }`. T says
 binds `next` and compares. The message is good and says what to do.
 Label: gap.
 
+**Fixed in t 0.108.0 (step 100):** consts and const parameters of an integer type, `bool`, `char` or `&str` are patterns.
+
 ## Can't assign through a call's result (gap)
 
 Wanted `module(prog, i).doc = Some(doc);` (as Rust's
@@ -93,6 +95,8 @@ function `read_head`. The message names the type, not the parameter, which
 took a moment: "`head` is a parameter of type `Head`, not a function" would
 be clearer. Label: unsure (message).
 
+**Message fixed in t 0.108.0 (step 100):** "`head` is a parameter of type `Head`, not a function".
+
 ## Elided lifetimes of a `Tok` parameter (unsure)
 
 `fn exprs(p: &mut Parser, close: Tok)` calling `p.expect(close)` where
@@ -103,6 +107,8 @@ signature doesn't say it does". Correct (the `'s` of a `&mut Parser<'a,
 its own lifetime, which compares fine with `Tok<'s>`. The message says
 "the lifetime of `p`", which is ambiguous for a `&mut Parser<'a, 's>`
 (which of its three?). Label: unsure (message).
+
+**Message fixed in t 0.108.0 (step 100):** it marks which lifetime, "the lifetime `'1` in the type of `p`, `&mut Parser<'1, '_>`".
 
 ## Private types in public signatures (by design)
 
@@ -142,6 +148,8 @@ Wanted `ExprKind::If(..) | ExprKind::Match(..) => ..` (Rust's printer has
 every field as `_`: `ExprKind::While(_, _, _, _)`, which breaks each time
 a variant gains a field. Label: gap.
 
+**Fixed in t 0.108.0 (step 100):** `..` in variant, tuple and array patterns; the printer now writes `ExprKind::If(..)`.
+
 ## Keywords as names, again (`invariant`, `sealed`, `effect`, `with`, `ensures`)
 Porting `fn invariant(..)`, `let sealed = ..`, `fn effect(..)`, `let with =
 ..` and a parameter `ensures` straight from pretty.rs: each is a syntax
@@ -149,6 +157,8 @@ error, e.g. "syntax error: expected a pattern, found `sealed`". Renamed to
 `loop_invariant`, `seal`, `one_effect`, `has_with`, `posts`. Known (PORTING.md
 lists them); the message could say "`sealed` is a keyword". Label: by design
 (message: unsure).
+
+**Message fixed in t 0.108.0 (step 100):** "`sealed` is a keyword, so it can't be a name".
 
 ## No `+` on documents: `a + b + "x"` is `a.add(b).text("x")`
 pretty.rs builds every `Doc` with `+` (an `Add` impl, with `Into<Doc>` for
@@ -181,6 +191,8 @@ Wanted `while let ExprKind::Binary(inner, l, r) = &left.kind && prec(*inner)
 == p && ..` (Rust 2024). T: "`&&` can't come at the top of what a `while
 let` matches (yet)". Wrote `loop { let ExprKind::Binary(..) = &left.kind else
 { break }; if !(..) { break } .. }`. Clear message. Label: gap.
+
+**Fixed in t 0.108.0 (step 100):** let chains in `if` and `while`.
 
 ## No `Clone`: `Doc::dup`, and a flag instead of `..f.clone()`
 `Hug` needs each argument's doc twice (Rust clones them): a hand-written

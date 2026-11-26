@@ -504,8 +504,9 @@ pub enum ExprKind {
     MethodCall(Box<Expr>, Ident, List<TypeExpr>, List<Expr>),
     /// `if c { .. } else { .. }`
     If(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
-    /// `if let p = e { .. } else { .. }`
-    IfLet(Box<LetCond>, Box<Expr>, Option<Box<Expr>>),
+    /// `if let p = e { .. } else { .. }`, or a chain with a `let` in it,
+    /// `if let Some(x) = o && x > 3 { .. }`.
+    IfLet(Box<Chain>, Box<Expr>, Option<Box<Expr>>),
     /// `[a, b, c]`
     Array(List<Expr>),
     /// `(a, b)`
@@ -532,8 +533,9 @@ pub enum ExprKind {
     Assign(Option<BinOp>, Box<Expr>, Box<Expr>),
     /// `'a: while c invariant p { .. }`
     While(Option<Label>, Box<Expr>, Invariant, Box<Expr>),
-    /// `'a: while let p = e invariant q { .. }`
-    WhileLet(Option<Label>, Box<LetCond>, Invariant, Box<Expr>),
+    /// `'a: while let p = e invariant q { .. }`, or a chain with a `let`
+    /// in it.
+    WhileLet(Option<Label>, Box<Chain>, Invariant, Box<Expr>),
     /// `'a: loop invariant p { .. }`
     Loop(Option<Label>, Invariant, Box<Expr>),
     /// `for p in it { .. }`
@@ -555,6 +557,15 @@ pub enum ExprKind {
 /// `let pat = expr`, what an `if let` or `while let` matches.
 #[derive(Discard)]
 pub struct LetCond { pub let_span: Span, pub pat: Pattern, pub expr: Expr }
+
+/// What an `if` or a `while` with a `let` in it tests: conditions joined
+/// by `&&`, each a `let` or a `bool`. At least one is a `let`.
+#[derive(Discard)]
+pub struct Chain { pub conds: List<Cond> }
+
+/// One condition of a `Chain`.
+#[derive(Discard)]
+pub enum Cond { Let(LetCond), Bool(Expr) }
 
 /// `for pat in iter { body }`, or with a label.
 #[derive(Discard)]
@@ -678,6 +689,9 @@ pub enum PatternKind {
     Tuple(List<Pattern>),
     /// `A | B`
     Or(List<Pattern>),
+    /// `..` among a variant's, a tuple's or an array's values: the ones
+    /// the others don't name.
+    Rest,
 }
 
 /// `y: 0` in a struct pattern. Plain `x` is short for `x: x`.

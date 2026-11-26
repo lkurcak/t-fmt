@@ -44,7 +44,7 @@ pub fn ty(p: &mut Parser) -> Result<TypeExpr, Error> {
     // `T::Item`, `T::Item::Other`: projections without the trait.
     loop {
         let path = match &t.kind {
-            TypeExprKind::Named(_, _) | TypeExprKind::Proj(_, _, _) => true,
+            TypeExprKind::Named(..) | TypeExprKind::Proj(..) => true,
             _ => false,
         };
         if p.peek() != Tok::ColonColon || !path {
