@@ -19,7 +19,7 @@ fn main(os: Os) -> Result<(), Error> {
     let mut out = os.stdout;
     let mut err = os.stderr;
     let (Some(mode), Some(path)) = (os.args.get(0), os.args.get(1)) else {
-        return err.line("usage: t-fmt --tokens|--print <file.t>");
+        return err.line("usage: t-fmt --tokens|--parse|--print <file.t>");
     };
     let src = os.fs.read_to_string(path)?;
     match mode {
@@ -30,6 +30,18 @@ fn main(os: Os) -> Result<(), Error> {
                 out.put(s.as_str())
             },
             Err(e) => out.line(&f"error {e.span.start}..{e.span.end}: {e.message}"),
+        },
+        // Whether the file parses, or its syntax error, as the oracle
+        // prints them: for comparing the two.
+        "--parse" => {
+            let lexed = match lexer::lex(src.as_str()) {
+                Ok(lexed) => lexed,
+                Err(e) => return out.line(&f"error {e.span.start}..{e.span.end}: {e.message}"),
+            };
+            match parser::parse(&lexed) {
+                Ok(_) => out.line("ok"),
+                Err(e) => out.line(&f"error {e.span.start}..{e.span.end}: {e.message}"),
+            }
         },
         // What `t fmt` would make of the file, or its syntax error, as the
         // oracle prints them: for comparing the two.
@@ -43,7 +55,7 @@ fn main(os: Os) -> Result<(), Error> {
                 Err(e) => out.line(&f"error {e.span.start}..{e.span.end}: {e.message}"),
             }
         },
-        _ => err.line("usage: t-fmt --tokens|--print <file.t>"),
+        _ => err.line("usage: t-fmt --tokens|--parse|--print <file.t>"),
     }
 }
 
