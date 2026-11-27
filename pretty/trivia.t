@@ -238,6 +238,7 @@ impl<'s> Trivia<'s> {
             }
             match t.tok {
                 Tok::Int(..)
+                | Tok::Float
                 | Tok::Byte(_)
                 | Tok::Char(_)
                 | Tok::Str

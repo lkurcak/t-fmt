@@ -11,13 +11,16 @@ use alloc::string::String;
 
 use crate::ast::{FmtAlign, FmtKind, FmtPad, FmtSpec, FmtWidth, IntTy};
 use crate::error::{Error, Span};
-use crate::text::{at, byte, char_at, is_alnum, is_alpha, is_digit, is_hex, is_ws, sub};
+use crate::text::{at, byte, char_at, is_alnum, is_alpha, is_digit, is_hex, is_ws, item, sub};
 
 #[derive(Copy, Discard, Eq)]
 pub enum Tok<'s> {
     /// An integer literal: its value, and the type its suffix says, as
     /// in `255u8`, if it has one.
     Int(u64, Option<IntTy>),
+    /// A floating-point literal, `2.5e-3` or `2.5f32`. What it means
+    /// isn't kept: the printer writes literals as the source does.
+    Float,
     /// `b'a'`: a byte literal, a `u8`.
     Byte(u8),
     /// `'a'`: a character literal.
@@ -185,6 +188,7 @@ impl<'s> Tok<'s> {
         let s = match self {
             Tok::Int(n, None) => return String::of(&f"`{n}`"),
             Tok::Int(n, Some(t)) => return String::of(&f"`{n}{t.name()}`"),
+            Tok::Float => return String::from("a float literal"),
             Tok::Byte(b) => return String::of(&f"`{byte_literal(b)}`"),
             Tok::Char(c) => return String::of(&f"`{char_literal(c)}`"),
             Tok::Str => return String::from("a string literal"),
@@ -334,7 +338,8 @@ fn lex_between<'s>(
         }
 
         let tok = if is_digit(c) {
-            let (tok, end) = number(src, i)?;
+            let after_dot = toks.len() > 0 && item(&toks, toks.len() - 1).tok == Tok::Dot;
+            let (tok, end) = number(src, i, after_dot)?;
             i = end;
             tok
         } else if c == b'f' && at(bytes, i + 1) == Some(b'"') {
@@ -499,9 +504,10 @@ fn punct<'s>(c: u8, next: Option<u8>, third: Option<u8>) -> (Tok<'s>, usize) {
     }
 }
 
-/// The integer literal starting with the digit at `start`, and where it
-/// ends.
-fn number<'s>(src: &'s str, start: usize) -> Result<(Tok<'s>, usize), Error> {
+/// The integer or floating-point literal starting with the digit at
+/// `start`, and where it ends; right after a `.`, `after_dot`, an
+/// integer, a tuple's field.
+fn number<'s>(src: &'s str, start: usize, after_dot: bool) -> Result<(Tok<'s>, usize), Error> {
     let bytes = src.as_bytes();
     let c = byte(bytes, start);
     let mut i = start;
@@ -516,6 +522,10 @@ fn number<'s>(src: &'s str, start: usize) -> Result<(Tok<'s>, usize), Error> {
     };
     if radix != 10 {
         i = i + 2;
+    } else if !after_dot {
+        if let Some(end) = float(src, start)? {
+            return Ok((Tok::Float, end));
+        }
     }
     // Its digits: hexadecimal ones for any radix, so that `0b102` says `2`
     // isn't a binary digit rather than that `2` isn't a suffix. A suffix
@@ -589,6 +599,80 @@ fn number<'s>(src: &'s str, start: usize) -> Result<(Tok<'s>, usize), Error> {
         },
     };
     Ok((Tok::Int(n, suffix), i))
+}
+
+/// Where the floating-point literal at `start` ends, if there's one:
+/// decimal digits, then a fraction, `.` and digits, or an exponent, `e`, a
+/// sign or not, and digits, or both, and then `f32` or `f64` or not; or
+/// digits and a suffix alone, `1f64`. A `.` not followed by a digit isn't
+/// a fraction's, so `1..2` is a range and `1.max(2)` a call.
+fn float(src: &str, start: usize) -> Result<Option<usize>, Error> {
+    let bytes = src.as_bytes();
+    let mut i = decimals(bytes, start);
+    let mut is_float = false;
+    let digit_after = match at(bytes, i + 1) {
+        Some(d) => is_digit(d),
+        None => false,
+    };
+    if at(bytes, i) == Some(b'.') && digit_after {
+        i = decimals(bytes, i + 1);
+        is_float = true;
+    }
+    if let Some(e) = exponent(bytes, i) {
+        if byte(bytes, i) == b'E' {
+            return Err(Error::syntax(Span::new(i, i + 1), "write the exponent's `e` in lowercase"));
+        }
+        i = decimals(bytes, e);
+        is_float = true;
+    }
+    let mut j = i;
+    while j < bytes.len() && (is_alnum(byte(bytes, j)) || byte(bytes, j) == b'_') {
+        j = j + 1;
+    }
+    let suffix = sub(src, i, j);
+    let typed = suffix == "f32" || suffix == "f64";
+    if suffix != "" && !typed {
+        if !is_float {
+            return Ok(None);
+        }
+        return Err(Error::owned(
+            Span::new(i, j),
+            String::of(
+                &f"`{suffix}` isn't a floating-point type, so it can't be a float literal's suffix, as `f32` is in `2.5f32`",
+            ),
+        ));
+    }
+    if !is_float && !typed {
+        return Ok(None);
+    }
+    Ok(Some(j))
+}
+
+/// Where the decimal digits and `_`s from `i` end.
+fn decimals(bytes: &[u8], i: usize) -> usize {
+    let mut j = i;
+    while j < bytes.len() && (is_digit(byte(bytes, j)) || byte(bytes, j) == b'_') {
+        j = j + 1;
+    }
+    j
+}
+
+/// Where an exponent's digits start, if one starts at `i`: `e` or `E`, a
+/// sign or not, and a digit.
+fn exponent(bytes: &[u8], i: usize) -> Option<usize> {
+    let e = at(bytes, i) == Some(b'e') || at(bytes, i) == Some(b'E');
+    if !e {
+        return None;
+    }
+    let digit = |j: usize| match at(bytes, j) {
+        Some(d) => is_digit(d),
+        None => false,
+    };
+    if digit(i + 1) {
+        return Some(i + 1);
+    }
+    let sign = at(bytes, i + 1) == Some(b'+') || at(bytes, i + 1) == Some(b'-');
+    if sign && digit(i + 2) { Some(i + 2) } else { None }
 }
 
 /// `0X`, `0B` or `0O` at `start`: the prefix is written in lowercase.
@@ -881,6 +965,9 @@ fn spec_of(
         }
     }
     let Some((fill, align, skip)) = pad else {
+        if let Some(kind) = places(written, from)? {
+            return Ok(Some((FmtSpec { kind, pad: None }, None)));
+        }
         // `0` and a width, with `x` or not.
         if let Some(w) = written.strip_prefix('0') {
             let (w, hex) = match w.strip_suffix('x') {
@@ -959,10 +1046,28 @@ fn spec_of(
         "" => FmtKind::Display,
         "?" => FmtKind::Debug,
         "x" => FmtKind::Hex(0),
-        _ => return Ok(None),
+        _ => match places(after, stop - after.len())? {
+            Some(kind) => kind,
+            None => return Ok(None),
+        },
     };
     let pad = Some(FmtPad { fill, align, width });
     Ok(Some((FmtSpec { kind, pad }, width_at)))
+}
+
+/// `.3`, at `at`: how many digits after a float's point, at most 255.
+fn places(w: &str, at: usize) -> Result<Option<FmtKind>, Error> {
+    let Some(n) = w.strip_prefix('.') else { return Ok(None) };
+    if !digits(n) {
+        return Ok(None);
+    }
+    match decimal(n, 255) {
+        Some(n) => Ok(Some(FmtKind::Fixed(n as usize))),
+        None => Err(Error::syntax(
+            Span::new(at, at + w.len()),
+            "a float is written with at most 255 digits after its point",
+        )),
+    }
 }
 
 fn all_zeros(w: &str) -> bool {

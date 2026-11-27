@@ -212,7 +212,7 @@ fn expr_inner(p: &mut Printer, e: &Expr, ctx: Ctx) -> Doc {
         },
         ExprKind::Bool(b) => text(if *b { "true" } else { "false" }),
         ExprKind::Char(c) => p.spelled(e.span, char_literal(*c)),
-        ExprKind::Str | ExprKind::ByteStr => p.written(e.span),
+        ExprKind::Str | ExprKind::ByteStr | ExprKind::Float => p.written(e.span),
         ExprKind::Format(pieces) => match p.quiet {
             false => match p.trivia.spelled(e.span) {
                 Some(s) => Doc::Text(s),
@@ -926,6 +926,7 @@ fn suffix(spec: &FmtSpec) -> String {
         FmtKind::Hex(0) => out.push('x'),
         FmtKind::Hex(n) => out.push_str(String::of(&f"0{n}x").as_str()),
         FmtKind::Dec(n) => out.push_str(String::of(&f"0{n}").as_str()),
+        FmtKind::Fixed(n) => out.push_str(String::of(&f".{n}").as_str()),
     }
     match out.is_empty() {
         true => out,

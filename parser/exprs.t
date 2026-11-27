@@ -540,6 +540,7 @@ fn binop(tok: Tok) -> Option<(BinOp, u8)> {
 fn starts_expr(tok: Tok) -> bool {
     match tok {
         Tok::Int(..)
+        | Tok::Float
         | Tok::Byte(_)
         | Tok::Char(_)
         | Tok::Str
@@ -678,6 +679,7 @@ fn primary(p: &mut Parser) -> Result<Expr, Error> {
     let span = p.span();
     let kind = match p.peek() {
         Tok::Int(n, suffix) => ExprKind::Int(n, suffix),
+        Tok::Float => ExprKind::Float,
         Tok::Byte(b) => ExprKind::Int(b as u64, Some(IntTy::U8)),
         Tok::Char(c) => ExprKind::Char(c),
         Tok::Str => ExprKind::Str,

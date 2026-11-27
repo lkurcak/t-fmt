@@ -253,6 +253,8 @@ pub enum FmtKind {
     Hex(usize),
     /// `05`: decimal, with at least that many characters.
     Dec(usize),
+    /// `.3`: a float, with that many digits after its point.
+    Fixed(usize),
 }
 
 #[derive(Discard)]
@@ -480,6 +482,8 @@ pub struct Expr { pub kind: ExprKind, pub span: Span }
 pub enum ExprKind {
     /// An integer literal, `42`, or a byte literal, `b'a'`, which is a `u8`.
     Int(u64, Option<IntTy>),
+    /// A floating-point literal, `2.5e-3`: written as the source does.
+    Float,
     Bool(bool),
     Char(char),
     /// `"hi"`
