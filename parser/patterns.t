@@ -88,6 +88,7 @@ pub fn pat_atom(p: &mut Parser) -> Result<Pattern, Error> {
                 "a byte string literal can't be a pattern yet; compare with `==`",
             ));
         },
+        Tok::Float => return Err(float_pattern(start)),
         Tok::Int(..) | Tok::Minus | Tok::Byte(_) | Tok::Char(_) => return literal(p),
         Tok::DotDot | Tok::DotDotEq => {
             // `..` alone: the values of a tuple, variant or array the
@@ -286,6 +287,15 @@ fn pat_int(p: &mut Parser) -> Result<PatInt, Error> {
         ));
     }
     Ok(PatInt { num: Num { neg, abs: n }, lit: Lit::Int, span: start.to(end) })
+}
+
+/// That a float, at `span`, can't be a pattern: of floats, `==` isn't an
+/// equivalence.
+fn float_pattern(span: Span) -> Error {
+    Error::syntax(
+        span,
+        "a float can't be a pattern, as `==` of floats isn't an equivalence; bind it and compare with `if x == 1.5`",
+    )
 }
 
 /// Can a literal in a pattern start with `tok`?
