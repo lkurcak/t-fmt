@@ -312,11 +312,7 @@ fn newlines(s: &str) -> usize {
 
 /// Sorts the values of `l` from index `from` on by `key`, keeping those
 /// with equal keys in the order they're in.
-pub fn sort<effect e, T: Copy, K: Fn(&T) -> usize with e + Discard>(
-    l: &mut List<T>,
-    from: usize,
-    key: K,
-) with {panic, e} {
+pub fn sort<T: Copy, K: Fn(&T) -> usize + Discard>(l: &mut List<T>, from: usize, key: K) {
     let mut i = from + 1;
     while i < l.len() {
         let x = *item(l, i);

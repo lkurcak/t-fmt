@@ -152,11 +152,11 @@ impl<'a, 's> Parser<'a, 's> {
 
     /// `item, item, ..` up to `close`, after what opens the list, with a
     /// comma after the last if it's wanted: the items, and where `close` is.
-    fn comma_list<
-        effect e,
-        T: Discard,
-        F: FnMut(&mut Parser<'a, 's>) -> Result<T, Error> with e + Discard,
-    >(&mut self, close: Tok, mut item: F) -> Result<(List<T>, Span), Error> with {alloc, panic, e} {
+    fn comma_list<T: Discard, F: FnMut(&mut Parser<'a, 's>) -> Result<T, Error> + Discard>(
+        &mut self,
+        close: Tok,
+        mut item: F,
+    ) -> Result<(List<T>, Span), Error> {
         let mut items = List::new();
         loop {
             if self.peek() == close {
@@ -173,11 +173,7 @@ impl<'a, 's> Parser<'a, 's> {
 
     /// What `f` reads, with struct literals `allowed` in it or not; after
     /// it, they're as they were.
-    fn structs<effect e, T, F: FnOnce(&mut Parser<'a, 's>) -> T with e>(
-        &mut self,
-        allowed: bool,
-        f: F,
-    ) -> T with e {
+    fn structs<T, F: FnOnce(&mut Parser<'a, 's>) -> T>(&mut self, allowed: bool, f: F) -> T {
         let saved = self.no_struct;
         self.no_struct = !allowed;
         let out = f(self);
