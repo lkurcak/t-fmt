@@ -348,11 +348,9 @@ impl<'s> Printer<'s> {
     /// delimiter is in the source, `span` says where each item starts and
     /// ends, and `rest` goes after the last item (`..` in a struct pattern).
     pub fn list<
-        effect e,
-        effect f,
         T,
-        S: Fn(&T) -> (usize, usize) with e + Discard,
-        F: FnMut(&mut Printer<'s>, &T) -> Doc with f + Discard,
+        S: Fn(&T) -> (usize, usize) + Discard,
+        F: FnMut(&mut Printer<'s>, &T) -> Doc + Discard,
     >(
         &mut self,
         delims: Delims,

@@ -49,6 +49,11 @@ does" would make these helpers as cheap to write as in Rust. With the
 helpers the parser is ~150 lines shorter and reads like the Rust. Label:
 gap.
 
+**Fixed in t 0.112.0 (step 104):** an `Fn` bound with no `with` leaves what
+its calls do open, `F::e`, so `comma_list`, `structs`, `list` and `sort`
+name no effect parameter and say no `with`: they have their body's effects
+and their closure's.
+
 ## Keywords as names (by design, but it bites constantly)
 
 The Rust parser has functions `invariant`, `effect` and a method
